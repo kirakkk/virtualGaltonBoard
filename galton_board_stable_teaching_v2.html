@@ -1,0 +1,1438 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>教学型虚拟高尔顿板（稳定版）</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/matter-js/0.19.0/matter.min.js"></script>
+    <style>
+        :root {
+            color-scheme: dark;
+        }
+
+        html,
+        body {
+            margin: 0;
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
+            background: radial-gradient(circle at top, #1e293b 0%, #0f172a 42%, #020617 100%);
+            font-family: Inter, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        }
+
+        #canvasContainer,
+        #hudCanvas {
+            position: fixed;
+            inset: 0;
+        }
+
+        #hudCanvas {
+            pointer-events: none;
+            z-index: 2;
+        }
+
+        .controls,
+        .info-card {
+            backdrop-filter: blur(12px);
+            background: rgba(15, 23, 42, 0.72);
+            box-shadow: 0 20px 80px rgba(2, 6, 23, 0.45);
+        }
+
+        .metric-card {
+            min-width: 74px;
+            border: 1px solid rgba(71, 85, 105, 0.55);
+            background: rgba(15, 23, 42, 0.35);
+            border-radius: 14px;
+            padding: 8px 10px;
+            text-align: center;
+        }
+
+        .metric-label {
+            display: block;
+            font-size: 10px;
+            letter-spacing: .08em;
+            text-transform: uppercase;
+            color: #94a3b8;
+            margin-bottom: 4px;
+        }
+
+        .metric-value {
+            display: block;
+            font-size: 18px;
+            line-height: 1;
+            font-variant-numeric: tabular-nums;
+        }
+
+        .toggle-pill {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            padding: 8px 10px;
+            border-radius: 999px;
+            background: rgba(30, 41, 59, 0.55);
+            border: 1px solid rgba(71, 85, 105, 0.55);
+            font-size: 12px;
+            color: #cbd5e1;
+            white-space: nowrap;
+        }
+
+        .toggle-pill input[type="checkbox"] {
+            width: 14px;
+            height: 14px;
+            accent-color: #6366f1;
+            cursor: pointer;
+        }
+
+        .info-grid {
+            display: grid;
+            grid-template-columns: auto auto;
+            gap: 8px 12px;
+            align-items: center;
+            font-size: 13px;
+            line-height: 1.3;
+        }
+
+        .info-grid dt {
+            color: #94a3b8;
+        }
+
+        .info-grid dd {
+            margin: 0;
+            text-align: right;
+            color: #e2e8f0;
+            font-variant-numeric: tabular-nums;
+        }
+
+        .formula-badge {
+            display: inline-block;
+            border-radius: 999px;
+            padding: 6px 10px;
+            font-size: 11px;
+            color: #cbd5e1;
+            background: rgba(30, 41, 59, 0.6);
+            border: 1px solid rgba(71, 85, 105, 0.55);
+        }
+
+        input[type="range"] {
+            accent-color: #6366f1;
+        }
+
+        @media (max-width: 1024px) {
+            .info-card {
+                right: 12px !important;
+                bottom: 12px !important;
+                width: min(332px, calc(100vw - 24px));
+            }
+        }
+
+        @media (max-width: 860px) {
+            .controls {
+                width: calc(100vw - 20px) !important;
+                left: 10px !important;
+                right: 10px !important;
+                transform: none !important;
+            }
+
+            .info-card {
+                max-width: min(332px, calc(100vw - 24px));
+            }
+        }
+
+        @media (max-width: 760px) {
+            .info-card {
+                display: none;
+            }
+        }
+    </style>
+</head>
+
+<body>
+    <div
+        class="controls fixed top-4 left-1/2 -translate-x-1/2 z-10 p-4 rounded-2xl border border-slate-700 text-white w-[min(1160px,calc(100vw-24px))]">
+        <div class="flex flex-wrap gap-3 items-start">
+            <div class="min-w-[220px]">
+                <h1
+                    class="text-2xl font-bold bg-gradient-to-r from-blue-400 to-indigo-400 bg-clip-text text-transparent">
+                    教学型虚拟高尔顿板</h1>
+                <p id="subtitle" class="text-xs text-slate-400 mt-1">17 层钉阵 · 18 个槽位 · 累计统计 Bin(17, 0.5)</p>
+            </div>
+
+            <div class="flex flex-wrap gap-2">
+                <div class="metric-card">
+                    <span class="metric-label">在场</span>
+                    <span id="liveCount" class="metric-value text-indigo-300">0</span>
+                </div>
+                <div class="metric-card">
+                    <span class="metric-label">已投放</span>
+                    <span id="spawnedCount" class="metric-value text-cyan-300">0</span>
+                </div>
+                <div class="metric-card">
+                    <span class="metric-label">已计样</span>
+                    <span id="sampleCount" class="metric-value text-emerald-300">0</span>
+                </div>
+            </div>
+
+            <div class="flex flex-wrap gap-2 ml-auto">
+                <button id="singleBtn"
+                    class="px-4 py-2 bg-slate-700 hover:bg-slate-600 rounded-lg transition-colors text-sm font-medium">单球演示</button>
+                <button id="drop100Btn"
+                    class="px-4 py-2 bg-slate-700 hover:bg-slate-600 rounded-lg transition-colors text-sm font-medium">100
+                    球实验</button>
+                <button id="drop500Btn"
+                    class="px-4 py-2 bg-slate-700 hover:bg-slate-600 rounded-lg transition-colors text-sm font-medium">500
+                    球实验</button>
+                <button id="resetBtn"
+                    class="px-4 py-2 bg-slate-700 hover:bg-slate-600 rounded-lg transition-colors text-sm font-medium">清空</button>
+                <button id="toggleBtn"
+                    class="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 rounded-lg transition-colors text-sm font-medium">暂停物理</button>
+            </div>
+        </div>
+
+        <div class="mt-4 grid grid-cols-1 lg:grid-cols-[1fr_1fr_auto] gap-4 items-end">
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <label class="block">
+                    <div class="flex items-center justify-between mb-1">
+                        <span class="text-xs uppercase tracking-wider text-slate-400">行数 n</span>
+                        <span id="rowsValue" class="text-xs text-indigo-300">17</span>
+                    </div>
+                    <input type="range" id="rowsRange" min="6" max="18" value="17"
+                        class="w-full h-2 bg-slate-700 rounded-lg cursor-pointer">
+                </label>
+
+                <label class="block">
+                    <div class="flex items-center justify-between mb-1">
+                        <span class="text-xs uppercase tracking-wider text-slate-400">自动投放速率</span>
+                        <span id="speedValue" class="text-xs text-indigo-300">6 / 秒</span>
+                    </div>
+                    <input type="range" id="speedRange" min="1" max="10" value="5"
+                        class="w-full h-2 bg-slate-700 rounded-lg cursor-pointer">
+                </label>
+            </div>
+
+            <div class="flex flex-wrap gap-2">
+                <label class="toggle-pill"><input id="autoToggle" type="checkbox" checked>自动投放</label>
+                <label class="toggle-pill"><input id="traceToggle" type="checkbox" checked>显示路径</label>
+                <label class="toggle-pill"><input id="normalToggle" type="checkbox" checked>正态近似</label>
+            </div>
+
+            <div class="text-xs leading-5 text-slate-400 max-w-[420px]">
+                这版把“物理下落”和“统计计样”分开：球穿过 <span class="text-slate-200">计数线</span> 就记入样本并退出动力学，
+                因此不会被底部堆积二次扰动，教学上更接近真正的 <span class="text-slate-200">Bin(n, 0.5)</span>。
+            </div>
+        </div>
+    </div>
+
+    <div id="canvasContainer"></div>
+    <canvas id="hudCanvas"></canvas>
+
+    <aside class="info-card fixed right-4 bottom-4 z-10 rounded-2xl border border-slate-700 p-4 text-white w-[352px]">
+        <div class="flex items-center justify-between mb-3">
+            <div>
+                <div class="text-sm font-semibold text-slate-100">教学面板</div>
+                <div class="text-[11px] text-slate-400">左 / 右决策 → 二项分布 → 正态近似</div>
+            </div>
+            <span class="formula-badge" id="formulaBadge">Bin(17, 0.5)</span>
+        </div>
+
+        <dl class="info-grid">
+            <dt>当前层数 n</dt>
+            <dd id="panelRows">17</dd>
+
+            <dt>槽位数量</dt>
+            <dd id="panelBins">18</dd>
+
+            <dt>累计样本 m</dt>
+            <dd id="panelSamples">0</dd>
+
+            <dt>理论均值 μ=np</dt>
+            <dd id="panelTheoryMean">8.50</dd>
+
+            <dt>观测均值</dt>
+            <dd id="panelObservedMean">—</dd>
+
+            <dt>理论标准差 σ=√(npq)</dt>
+            <dd id="panelTheorySigma">2.06</dd>
+
+            <dt>观测标准差</dt>
+            <dd id="panelObservedSigma">—</dd>
+
+            <dt>与理论差异</dt>
+            <dd id="panelDifference">—</dd>
+        </dl>
+
+        <div class="mt-4 text-xs leading-5 text-slate-300">
+            <div class="mb-2">
+                每经过一层钉子，小球都可看成做了一次“向左 / 向右”的伯努利试验。
+                若共有 <span id="textRowsA" class="text-indigo-300">17</span> 层，落入第 <span class="text-indigo-300">k</span>
+                个槽，
+                就代表“向右”发生了 <span class="text-indigo-300">k</span> 次。
+            </div>
+            <div class="mb-2 text-slate-200">
+                P(X = k) = C(n, k) / 2<sup>n</sup>
+            </div>
+            <div class="mb-2 text-slate-400">
+                统计口径采用 <span class="text-slate-200">过计数线即记样</span>，避免底部球堆再次碰撞把分布“挤成双峰”。
+            </div>
+            <div class="text-slate-400">
+                上方仍是物理模拟；下方蓝柱是累计频数，绿线是理论二项分布，黄虚线是正态近似。
+            </div>
+        </div>
+    </aside>
+
+    <script>
+        const { Engine, Render, Bodies, Composite, Body, Events } = Matter;
+
+        const CONFIG = {
+            rowsMin: 6,
+            rowsMax: 18,
+            ballLimit: 5000,
+            sideMargin: 28,
+            bottomMargin: 22,
+            topGap: 20,
+            pegSpacingMax: 34,
+            pegRadiusRatio: 0.14,
+            ballRadiusRatio: 0.14,
+            spawnRateMin: 1,
+            spawnRateMax: 10,
+            cleanupPadding: 220,
+            groundHeight: 20,
+            wallThickness: 10,
+            invisibleWallThickness: 18,
+            physicsStepMs: 1000 / 120,
+            maxSubSteps: 6,
+            ballMaxSpeed: 8.6,
+            ballMaxAngular: 0.85,
+            pegJitterVelocity: 0.055,
+            pegJitterSpin: 0.055,
+            pegColor: '#64748b',
+            wallColor: '#334155',
+            guideColor: '#233a59',
+            groundColor: '#132444'
+        };
+
+        const state = {
+            rows: 17,
+            isRunning: true,
+            autoSpawn: true,
+            traceEnabled: true,
+            showNormal: true,
+            totalSpawned: 0,
+            autoAccumulator: 0,
+            queueAccumulator: 0,
+            queuedBalls: 0,
+            queuedTrackedBalls: 0,
+            physicsAccumulatorMs: 0,
+            trackedBall: null,
+            traceGhost: null,
+            theory: [],
+            normalApprox: [],
+            resizeTimer: null,
+            lastFrameTime: 0,
+            lastStats: null,
+            sampleBins: []
+        };
+
+        let engine;
+        let render;
+        let boardComposite;
+        let ballsComposite;
+        let balls = [];
+        let layout = null;
+        let hudCanvas;
+        let hudCtx;
+
+        const subtitleEl = document.getElementById('subtitle');
+        const liveCountEl = document.getElementById('liveCount');
+        const spawnedCountEl = document.getElementById('spawnedCount');
+        const sampleCountEl = document.getElementById('sampleCount');
+        const rowsValueEl = document.getElementById('rowsValue');
+        const speedValueEl = document.getElementById('speedValue');
+        const rowsRangeEl = document.getElementById('rowsRange');
+        const speedRangeEl = document.getElementById('speedRange');
+        const autoToggleEl = document.getElementById('autoToggle');
+        const traceToggleEl = document.getElementById('traceToggle');
+        const normalToggleEl = document.getElementById('normalToggle');
+        const singleBtnEl = document.getElementById('singleBtn');
+        const drop100BtnEl = document.getElementById('drop100Btn');
+        const drop500BtnEl = document.getElementById('drop500Btn');
+        const resetBtnEl = document.getElementById('resetBtn');
+        const toggleBtnEl = document.getElementById('toggleBtn');
+
+        const panelRowsEl = document.getElementById('panelRows');
+        const panelBinsEl = document.getElementById('panelBins');
+        const panelSamplesEl = document.getElementById('panelSamples');
+        const panelTheoryMeanEl = document.getElementById('panelTheoryMean');
+        const panelObservedMeanEl = document.getElementById('panelObservedMean');
+        const panelTheorySigmaEl = document.getElementById('panelTheorySigma');
+        const panelObservedSigmaEl = document.getElementById('panelObservedSigma');
+        const panelDifferenceEl = document.getElementById('panelDifference');
+        const formulaBadgeEl = document.getElementById('formulaBadge');
+        const textRowsAEl = document.getElementById('textRowsA');
+
+        function clamp(value, min, max) {
+            return Math.max(min, Math.min(max, value));
+        }
+
+        function lerp(a, b, t) {
+            return a + (b - a) * t;
+        }
+
+        function combination(n, k) {
+            k = Math.min(k, n - k);
+            let result = 1;
+            for (let i = 1; i <= k; i++) {
+                result = (result * (n - k + i)) / i;
+            }
+            return result;
+        }
+
+        function erf(x) {
+            const sign = x < 0 ? -1 : 1;
+            const absX = Math.abs(x);
+            const a1 = 0.254829592;
+            const a2 = -0.284496736;
+            const a3 = 1.421413741;
+            const a4 = -1.453152027;
+            const a5 = 1.061405429;
+            const p = 0.3275911;
+            const t = 1 / (1 + p * absX);
+            const y = 1 - (((((a5 * t + a4) * t) + a3) * t + a2) * t + a1) * t * Math.exp(-absX * absX);
+            return sign * y;
+        }
+
+        function normalCdf(x, mean, sigma) {
+            if (sigma <= 0) return x < mean ? 0 : 1;
+            return 0.5 * (1 + erf((x - mean) / (sigma * Math.SQRT2)));
+        }
+
+        function normalIntervalProbability(mean, sigma, k) {
+            return normalCdf(k + 0.5, mean, sigma) - normalCdf(k - 0.5, mean, sigma);
+        }
+
+        function formatNumber(value) {
+            return Number.isFinite(value) ? value.toFixed(2) : '—';
+        }
+
+        function getRows() {
+            return Number(rowsRangeEl.value);
+        }
+
+        function getSpawnRate() {
+            const t = (Number(speedRangeEl.value) - 1) / 9;
+            return Math.round(lerp(CONFIG.spawnRateMin, CONFIG.spawnRateMax, t));
+        }
+
+        function updateSpeedLabel() {
+            speedValueEl.textContent = `${getSpawnRate()} / 秒`;
+        }
+
+        function updateRowsLabel() {
+            rowsValueEl.textContent = String(getRows());
+        }
+
+        function updateSubtitle() {
+            const bins = state.rows + 1;
+            subtitleEl.textContent = `${state.rows} 层钉阵 · ${bins} 个槽位 · 累计统计 Bin(${state.rows}, 0.5)`;
+            formulaBadgeEl.textContent = `Bin(${state.rows}, 0.5)`;
+            panelRowsEl.textContent = String(state.rows);
+            panelBinsEl.textContent = String(bins);
+            textRowsAEl.textContent = String(state.rows);
+        }
+
+        function getControlsBottom() {
+            const controls = document.querySelector('.controls');
+            return controls ? controls.getBoundingClientRect().bottom : 110;
+        }
+
+        function computeLayout() {
+            const width = window.innerWidth;
+            const height = window.innerHeight;
+            const top = getControlsBottom() + CONFIG.topGap;
+            const rows = state.rows;
+            const vRatio = Math.sqrt(3) / 2;
+
+            const targetBinHeight = clamp(height * 0.26, 150, 250);
+            const headroom = clamp(height * 0.09, 66, 96);
+
+            const widthLimitedSpacing = (width - CONFIG.sideMargin * 2) / (rows + 2.9);
+            const heightLimitedSpacing = (height - top - CONFIG.bottomMargin - targetBinHeight - headroom) / ((rows - 1) * vRatio + 1.15);
+
+            const spacing = clamp(
+                Math.min(widthLimitedSpacing, heightLimitedSpacing, CONFIG.pegSpacingMax),
+                13.5,
+                CONFIG.pegSpacingMax
+            );
+
+            const pegRadius = Math.max(2.2, spacing * CONFIG.pegRadiusRatio);
+            const ballRadius = Math.max(2.6, spacing * CONFIG.ballRadiusRatio);
+            const vSpacing = spacing * vRatio;
+            const centerX = width / 2;
+            const startY = top + headroom;
+            const lastPegY = startY + (rows - 1) * vSpacing;
+            const binStartY = lastPegY + vSpacing * 0.98;
+            const sampleY = binStartY - ballRadius * 0.35;
+            const binHeight = Math.max(132, height - binStartY - CONFIG.bottomMargin);
+            const leftBoundary = centerX - ((rows + 1) / 2) * spacing;
+            const rightBoundary = centerX + ((rows + 1) / 2) * spacing;
+
+            const feedTopY = top + 8;
+            const feedMouthHalfWidth = Math.max(spacing * 1.35, 24);
+            const feedNeckHalfWidth = Math.max(ballRadius * 1.7, 8.8);
+            const feedNeckY = startY - Math.max(vSpacing * 1.05, ballRadius * 3.6);
+            const spawnY = feedNeckY - ballRadius * 0.95;
+            const feederGuardY = startY - ballRadius * 0.15;
+            const feederGuardHalfWidth = Math.max(feedNeckHalfWidth + ballRadius * 0.95, spacing * 0.42);
+
+            const sideTopY = feedNeckY - ballRadius * 1.0;
+            const sideBottomY = binStartY - 8;
+            const leftSideTopX = centerX - feedNeckHalfWidth;
+            const rightSideTopX = centerX + feedNeckHalfWidth;
+            const leftSideBottomX = leftBoundary + spacing * 0.24;
+            const rightSideBottomX = rightBoundary - spacing * 0.24;
+
+            const containTopY = sideTopY;
+            const containBottomY = sideBottomY;
+            const leftContainTopX = leftSideTopX - CONFIG.invisibleWallThickness * 0.42;
+            const rightContainTopX = rightSideTopX + CONFIG.invisibleWallThickness * 0.42;
+            const leftContainBottomX = leftSideBottomX - CONFIG.invisibleWallThickness * 0.36;
+            const rightContainBottomX = rightSideBottomX + CONFIG.invisibleWallThickness * 0.36;
+            const containMargin = ballRadius * 0.65;
+
+            const binCenters = Array.from({ length: rows + 1 }, (_, i) => leftBoundary + (i + 0.5) * spacing);
+            const wallPositions = Array.from({ length: rows + 2 }, (_, i) => leftBoundary + i * spacing);
+
+            return {
+                width,
+                height,
+                rows,
+                centerX,
+                startY,
+                spacing,
+                vSpacing,
+                pegRadius,
+                ballRadius,
+                lastPegY,
+                binStartY,
+                sampleY,
+                binHeight,
+                leftBoundary,
+                rightBoundary,
+                feedTopY,
+                feedMouthHalfWidth,
+                feedNeckHalfWidth,
+                feedNeckY,
+                spawnY,
+                feederGuardY,
+                feederGuardHalfWidth,
+                sideTopY,
+                sideBottomY,
+                leftSideTopX,
+                rightSideTopX,
+                leftSideBottomX,
+                rightSideBottomX,
+                containTopY,
+                containBottomY,
+                leftContainTopX,
+                rightContainTopX,
+                leftContainBottomX,
+                rightContainBottomX,
+                containMargin,
+                binCenters,
+                wallPositions
+            };
+        }
+
+        function recomputeTheory() {
+            const n = state.rows;
+            const denominator = Math.pow(2, n);
+            const mean = n * 0.5;
+            const sigma = Math.sqrt(n * 0.25);
+
+            state.theory = Array.from({ length: n + 1 }, (_, k) => combination(n, k) / denominator);
+            state.normalApprox = Array.from({ length: n + 1 }, (_, k) => normalIntervalProbability(mean, sigma, k));
+        }
+
+        function makeSegment(x1, y1, x2, y2, thickness, options = {}) {
+            const length = Math.hypot(x2 - x1, y2 - y1);
+            const angle = Math.atan2(y2 - y1, x2 - x1);
+            return Bodies.rectangle((x1 + x2) / 2, (y1 + y2) / 2, length, thickness, {
+                isStatic: true,
+                angle,
+                ...options
+            });
+        }
+
+        function createBoard() {
+            const pieces = [];
+            const boardStyle = { fillStyle: CONFIG.wallColor };
+            const guideStyle = { fillStyle: CONFIG.guideColor };
+            const pegStyle = { fillStyle: CONFIG.pegColor };
+
+            pieces.push(
+                makeSegment(
+                    layout.centerX - layout.feedMouthHalfWidth,
+                    layout.feedTopY,
+                    layout.centerX - layout.feedNeckHalfWidth,
+                    layout.feedNeckY,
+                    CONFIG.wallThickness,
+                    { render: boardStyle }
+                ),
+                makeSegment(
+                    layout.centerX + layout.feedMouthHalfWidth,
+                    layout.feedTopY,
+                    layout.centerX + layout.feedNeckHalfWidth,
+                    layout.feedNeckY,
+                    CONFIG.wallThickness,
+                    { render: boardStyle }
+                )
+            );
+
+            pieces.push(
+                makeSegment(
+                    layout.leftSideTopX,
+                    layout.sideTopY,
+                    layout.leftSideBottomX,
+                    layout.sideBottomY,
+                    CONFIG.wallThickness,
+                    { render: guideStyle }
+                ),
+                makeSegment(
+                    layout.rightSideTopX,
+                    layout.sideTopY,
+                    layout.rightSideBottomX,
+                    layout.sideBottomY,
+                    CONFIG.wallThickness,
+                    { render: guideStyle }
+                )
+            );
+
+            pieces.push(
+                makeSegment(
+                    layout.leftContainTopX,
+                    layout.containTopY,
+                    layout.leftContainBottomX,
+                    layout.containBottomY,
+                    CONFIG.invisibleWallThickness,
+                    { render: { visible: false } }
+                ),
+                makeSegment(
+                    layout.rightContainTopX,
+                    layout.containTopY,
+                    layout.rightContainBottomX,
+                    layout.containBottomY,
+                    CONFIG.invisibleWallThickness,
+                    { render: { visible: false } }
+                )
+            );
+
+            for (let row = 0; row < state.rows; row++) {
+                const rowY = layout.startY + row * layout.vSpacing;
+                const rowStartX = layout.centerX - (row * layout.spacing) / 2;
+                for (let col = 0; col <= row; col++) {
+                    const peg = Bodies.circle(rowStartX + col * layout.spacing, rowY, layout.pegRadius, {
+                        isStatic: true,
+                        restitution: 0.02,
+                        friction: 0,
+                        frictionStatic: 0,
+                        render: pegStyle
+                    });
+                    peg._isPeg = true;
+                    peg._row = row;
+                    peg._col = col;
+                    pieces.push(peg);
+                }
+            }
+
+            for (const wallX of layout.wallPositions) {
+                pieces.push(Bodies.rectangle(wallX, layout.binStartY + layout.binHeight / 2, CONFIG.wallThickness, layout.binHeight, {
+                    isStatic: true,
+                    friction: 0,
+                    render: boardStyle
+                }));
+            }
+
+            pieces.push(Bodies.rectangle(
+                layout.centerX,
+                layout.binStartY + layout.binHeight - CONFIG.groundHeight / 2,
+                (state.rows + 3.8) * layout.spacing,
+                CONFIG.groundHeight,
+                {
+                    isStatic: true,
+                    render: { fillStyle: CONFIG.groundColor }
+                }
+            ));
+
+            pieces.push(
+                Bodies.rectangle(-120, layout.height / 2, 240, layout.height * 2.2, {
+                    isStatic: true,
+                    render: { visible: false }
+                }),
+                Bodies.rectangle(layout.width + 120, layout.height / 2, 240, layout.height * 2.2, {
+                    isStatic: true,
+                    render: { visible: false }
+                }),
+                Bodies.rectangle(layout.width / 2, layout.height + 80, layout.width * 2, 160, {
+                    isStatic: true,
+                    render: { visible: false }
+                })
+            );
+
+            Composite.add(boardComposite, pieces);
+        }
+
+        function feederIsClear() {
+            for (const ball of balls) {
+                if (
+                    Math.abs(ball.position.x - layout.centerX) < layout.feederGuardHalfWidth &&
+                    ball.position.y < layout.feederGuardY
+                ) {
+                    return false;
+                }
+            }
+            return true;
+        }
+
+        function freezeTrace(ball) {
+            if (!ball || !ball._tracePoints || ball._tracePoints.length < 2) return;
+            state.traceGhost = {
+                points: ball._tracePoints.slice(),
+                ttl: 90
+            };
+        }
+
+        function spawnBall({ forceTrack = false } = {}) {
+            if (state.totalSpawned >= CONFIG.ballLimit || !feederIsClear()) {
+                return false;
+            }
+
+            const jitterX = (Math.random() - 0.5) * layout.ballRadius * 0.85;
+            const hue = 220 + Math.sin(state.totalSpawned * 0.011) * 25;
+
+            const ball = Bodies.circle(
+                layout.centerX + jitterX,
+                layout.spawnY,
+                layout.ballRadius,
+                {
+                    restitution: 0.03,
+                    friction: 0.001,
+                    frictionStatic: 0.01,
+                    frictionAir: 0.0045,
+                    density: 0.00105,
+                    slop: 0.005,
+                    render: { fillStyle: `hsl(${hue}, 82%, 66%)` }
+                }
+            );
+
+            ball._isBall = true;
+            ball._counted = false;
+            ball._bornAt = performance.now();
+            ball._stuckSince = 0;
+            ball._lastRescue = 0;
+            ball._tracePoints = [];
+            ball._lastTraceTime = 0;
+            ball._lastPegJitterAt = -Infinity;
+
+            if (state.traceEnabled && (forceTrack || !state.trackedBall)) {
+                if (state.trackedBall) freezeTrace(state.trackedBall);
+                state.trackedBall = ball;
+            }
+
+            Body.setVelocity(ball, {
+                x: (Math.random() - 0.5) * 0.06,
+                y: 0.85
+            });
+            Body.setAngularVelocity(ball, (Math.random() - 0.5) * 0.08);
+
+            balls.push(ball);
+            Composite.add(ballsComposite, ball);
+            state.totalSpawned += 1;
+            return true;
+        }
+
+        function queueBalls(count, tracked = false) {
+            if (tracked) {
+                state.queuedTrackedBalls += count;
+            } else {
+                state.queuedBalls += count;
+            }
+        }
+
+        function ensureRunning() {
+            if (!state.isRunning) {
+                toggleRunning();
+            }
+        }
+
+        function getSampleBins() {
+            return state.sampleBins.slice();
+        }
+
+        function updateStats(summary = null) {
+            liveCountEl.textContent = String(balls.length);
+            spawnedCountEl.textContent = String(state.totalSpawned);
+            const sampleCount = summary ? summary.sampleCount : 0;
+            sampleCountEl.textContent = String(sampleCount);
+        }
+
+        function computeStatistics(counts) {
+            const sampleCount = counts.reduce((sum, value) => sum + value, 0);
+            const n = state.rows;
+            const theoryCounts = state.theory.map(prob => prob * sampleCount);
+            const normalCounts = state.normalApprox.map(prob => prob * sampleCount);
+
+            let observedMean = NaN;
+            let observedSigma = NaN;
+            let difference = NaN;
+
+            if (sampleCount > 0) {
+                observedMean = counts.reduce((sum, count, k) => sum + count * k, 0) / sampleCount;
+                const variance = counts.reduce((sum, count, k) => sum + count * Math.pow(k - observedMean, 2), 0) / sampleCount;
+                observedSigma = Math.sqrt(variance);
+
+                difference = counts.reduce((sum, count, i) => {
+                    return sum + Math.abs(count / sampleCount - state.theory[i]);
+                }, 0) / 2;
+            }
+
+            return {
+                counts,
+                sampleCount,
+                theoryCounts,
+                normalCounts,
+                theoryMean: n * 0.5,
+                theorySigma: Math.sqrt(n * 0.25),
+                observedMean,
+                observedSigma,
+                difference
+            };
+        }
+
+        function updateTeachingPanel(summary) {
+            panelSamplesEl.textContent = String(summary.sampleCount);
+            panelTheoryMeanEl.textContent = formatNumber(summary.theoryMean);
+            panelTheorySigmaEl.textContent = formatNumber(summary.theorySigma);
+            panelObservedMeanEl.textContent = summary.sampleCount > 0 ? formatNumber(summary.observedMean) : '—';
+            panelObservedSigmaEl.textContent = summary.sampleCount > 0 ? formatNumber(summary.observedSigma) : '—';
+            panelDifferenceEl.textContent = summary.sampleCount > 0 ? `${(summary.difference * 100).toFixed(1)}%` : '—';
+        }
+
+        function drawTrace() {
+            let trace = null;
+            let alpha = 1;
+
+            if (state.trackedBall && state.trackedBall._tracePoints && state.trackedBall._tracePoints.length > 1) {
+                trace = state.trackedBall._tracePoints;
+                alpha = 0.95;
+            } else if (state.traceGhost && state.traceGhost.points && state.traceGhost.points.length > 1 && state.traceGhost.ttl > 0) {
+                trace = state.traceGhost.points;
+                alpha = Math.max(0, state.traceGhost.ttl / 90);
+            }
+
+            if (!trace) return;
+
+            hudCtx.beginPath();
+            trace.forEach((point, index) => {
+                if (index === 0) {
+                    hudCtx.moveTo(point.x, point.y);
+                } else {
+                    hudCtx.lineTo(point.x, point.y);
+                }
+            });
+            hudCtx.lineWidth = 2.4;
+            hudCtx.strokeStyle = `rgba(56, 189, 248, ${0.18 + alpha * 0.55})`;
+            hudCtx.shadowColor = `rgba(56, 189, 248, ${alpha * 0.45})`;
+            hudCtx.shadowBlur = 14;
+            hudCtx.stroke();
+            hudCtx.shadowBlur = 0;
+        }
+
+        function drawSampleLine() {
+            hudCtx.setLineDash([6, 7]);
+            hudCtx.beginPath();
+            hudCtx.moveTo(layout.leftBoundary - layout.spacing * 0.7, layout.sampleY);
+            hudCtx.lineTo(layout.rightBoundary + layout.spacing * 0.7, layout.sampleY);
+            hudCtx.lineWidth = 1.4;
+            hudCtx.strokeStyle = 'rgba(148, 163, 184, 0.28)';
+            hudCtx.stroke();
+            hudCtx.setLineDash([]);
+
+            hudCtx.fillStyle = 'rgba(148, 163, 184, 0.82)';
+            hudCtx.font = '11px Inter, sans-serif';
+            hudCtx.textAlign = 'left';
+            hudCtx.fillText('计数线：穿过此线即记入样本', layout.rightBoundary - Math.min(165, layout.spacing * 6.5), layout.sampleY - 8);
+        }
+
+        function drawSampleBeads(counts, baseY) {
+            const slotWidth = layout.spacing * 0.76;
+            const dotR = Math.max(1.9, Math.min(3.9, layout.ballRadius * 0.82));
+            const stepX = dotR * 2.12;
+            const stepY = dotR * 1.95;
+            const cols = Math.max(1, Math.floor(slotWidth / stepX));
+            const maxRows = Math.max(1, Math.floor(Math.min(layout.binHeight * 0.5, 106) / stepY));
+            const maxVisible = cols * maxRows;
+
+            for (let i = 0; i < counts.length; i++) {
+                const visible = Math.min(counts[i], maxVisible);
+                if (visible <= 0) continue;
+
+                for (let index = 0; index < visible; index++) {
+                    const row = Math.floor(index / cols);
+                    const col = index % cols;
+                    const remaining = visible - row * cols;
+                    const rowCols = Math.min(cols, remaining);
+                    const rowWidth = (rowCols - 1) * stepX;
+                    const wobble = row % 2 === 1 && rowCols > 1 ? stepX * 0.22 : 0;
+                    const x = layout.binCenters[i] - rowWidth / 2 + col * stepX + wobble;
+                    const y = baseY - dotR - row * stepY;
+
+                    hudCtx.beginPath();
+                    hudCtx.arc(x, y, dotR, 0, Math.PI * 2);
+                    hudCtx.fillStyle = `rgba(${110 + (i * 7) % 70}, ${118 + (i * 13) % 70}, 255, 0.58)`;
+                    hudCtx.fill();
+                }
+            }
+        }
+
+        function drawHud(summary) {
+            const dpr = window.devicePixelRatio || 1;
+            hudCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
+            hudCtx.clearRect(0, 0, hudCanvas.width / dpr, hudCanvas.height / dpr);
+
+            drawTrace();
+            drawSampleLine();
+
+            const counts = summary.counts;
+            const total = summary.sampleCount;
+            const scaleMax = Math.max(1, ...counts, ...summary.theoryCounts, ...(state.showNormal ? summary.normalCounts : []));
+            const histogramHeight = Math.min(122, Math.max(58, layout.binHeight * 0.44));
+            const baseY = layout.binStartY + layout.binHeight - CONFIG.groundHeight - 7;
+            const barWidth = Math.max(4, layout.spacing * 0.68);
+
+            drawSampleBeads(counts, baseY);
+
+            for (let i = 0; i < counts.length; i++) {
+                const centerX = layout.binCenters[i];
+                const value = counts[i];
+                const barHeight = value / scaleMax * histogramHeight;
+                hudCtx.fillStyle = 'rgba(129, 140, 248, 0.28)';
+                hudCtx.fillRect(centerX - barWidth / 2, baseY - barHeight, barWidth, barHeight);
+
+                if (layout.spacing >= 18 && value > 0) {
+                    hudCtx.fillStyle = 'rgba(226, 232, 240, 0.78)';
+                    hudCtx.font = '10px Inter, sans-serif';
+                    hudCtx.textAlign = 'center';
+                    hudCtx.fillText(String(value), centerX, baseY - barHeight - 6);
+                }
+            }
+
+            if (total > 0) {
+                hudCtx.beginPath();
+                summary.theoryCounts.forEach((value, index) => {
+                    const x = layout.binCenters[index];
+                    const y = baseY - (value / scaleMax) * histogramHeight;
+                    if (index === 0) {
+                        hudCtx.moveTo(x, y);
+                    } else {
+                        hudCtx.lineTo(x, y);
+                    }
+                });
+                hudCtx.lineWidth = 2.2;
+                hudCtx.strokeStyle = 'rgba(34, 197, 94, 0.94)';
+                hudCtx.stroke();
+
+                if (state.showNormal) {
+                    hudCtx.beginPath();
+                    summary.normalCounts.forEach((value, index) => {
+                        const x = layout.binCenters[index];
+                        const y = baseY - (value / scaleMax) * histogramHeight;
+                        if (index === 0) {
+                            hudCtx.moveTo(x, y);
+                        } else {
+                            hudCtx.lineTo(x, y);
+                        }
+                    });
+                    hudCtx.setLineDash([7, 5]);
+                    hudCtx.lineWidth = 2;
+                    hudCtx.strokeStyle = 'rgba(251, 191, 36, 0.92)';
+                    hudCtx.stroke();
+                    hudCtx.setLineDash([]);
+                }
+            }
+
+            hudCtx.fillStyle = 'rgba(148, 163, 184, 0.95)';
+            hudCtx.font = '12px Inter, sans-serif';
+            hudCtx.textAlign = 'left';
+            hudCtx.fillText('蓝柱：累计样本频数（过计数线即记样）', layout.leftBoundary + 8, baseY - histogramHeight - 24);
+            hudCtx.fillStyle = 'rgba(34, 197, 94, 0.95)';
+            hudCtx.fillText('绿线：理论二项分布', layout.leftBoundary + 8, baseY - histogramHeight - 8);
+
+            if (state.showNormal) {
+                hudCtx.fillStyle = 'rgba(251, 191, 36, 0.95)';
+                hudCtx.fillText('黄虚线：正态近似', layout.leftBoundary + 172, baseY - histogramHeight - 8);
+            }
+
+            if (layout.spacing >= 20) {
+                hudCtx.fillStyle = 'rgba(148, 163, 184, 0.85)';
+                hudCtx.font = '10px Inter, sans-serif';
+                hudCtx.textAlign = 'center';
+                for (let i = 0; i < layout.binCenters.length; i++) {
+                    hudCtx.fillText(String(i), layout.binCenters[i], baseY + 16);
+                }
+                hudCtx.textAlign = 'left';
+                hudCtx.fillText('k = 向右次数', layout.leftBoundary + 8, baseY + 31);
+            }
+
+            if (state.traceEnabled) {
+                hudCtx.fillStyle = 'rgba(56, 189, 248, 0.95)';
+                hudCtx.fillText('青线：最近一颗演示球路径', layout.leftBoundary + 8, layout.startY - 18);
+            }
+        }
+
+        function cleanupBalls() {
+            const minX = -CONFIG.cleanupPadding;
+            const maxX = window.innerWidth + CONFIG.cleanupPadding;
+            const maxY = window.innerHeight + CONFIG.cleanupPadding;
+
+            balls = balls.filter((ball) => {
+                const out = ball.position.x < minX || ball.position.x > maxX || ball.position.y > maxY;
+                if (out) {
+                    if (ball === state.trackedBall) {
+                        freezeTrace(ball);
+                        state.trackedBall = null;
+                    }
+                    Composite.remove(ballsComposite, ball);
+                }
+                return !out;
+            });
+        }
+
+        function updateTrace(now) {
+            if (state.traceGhost && state.traceGhost.ttl > 0) {
+                state.traceGhost.ttl -= 1;
+            }
+
+            if (!state.traceEnabled) {
+                state.trackedBall = null;
+                state.traceGhost = null;
+                return;
+            }
+
+            if (!state.trackedBall) return;
+            const ball = state.trackedBall;
+
+            if (!balls.includes(ball)) {
+                freezeTrace(ball);
+                state.trackedBall = null;
+                return;
+            }
+
+            if (!ball._lastTraceTime || now - ball._lastTraceTime > 24) {
+                ball._tracePoints.push({ x: ball.position.x, y: ball.position.y });
+                if (ball._tracePoints.length > 180) {
+                    ball._tracePoints.shift();
+                }
+                ball._lastTraceTime = now;
+            }
+
+            if (ball.position.y > layout.sampleY) {
+                freezeTrace(ball);
+                state.trackedBall = null;
+            }
+        }
+
+        function rescueFeederIfNeeded(now) {
+            for (const ball of balls) {
+                const inTopZone =
+                    Math.abs(ball.position.x - layout.centerX) < layout.spacing * 0.85 &&
+                    ball.position.y < layout.startY + layout.ballRadius * 1.7;
+
+                if (!inTopZone) {
+                    ball._stuckSince = 0;
+                    continue;
+                }
+
+                const almostStill = Math.abs(ball.velocity.x) < 0.05 && Math.abs(ball.velocity.y) < 0.06;
+                if (!almostStill) {
+                    ball._stuckSince = 0;
+                    continue;
+                }
+
+                if (!ball._stuckSince) {
+                    ball._stuckSince = now;
+                    continue;
+                }
+
+                if (now - ball._stuckSince > 720 && now - ball._lastRescue > 620) {
+                    Body.setVelocity(ball, {
+                        x: (Math.random() - 0.5) * 0.18,
+                        y: Math.max(1.0, ball.velocity.y + 0.92)
+                    });
+                    ball._lastRescue = now;
+                    ball._stuckSince = now;
+                }
+            }
+        }
+
+        function xOnLineAtY(x1, y1, x2, y2, y) {
+            if (Math.abs(y2 - y1) < 1e-6) return (x1 + x2) / 2;
+            const t = clamp((y - y1) / (y2 - y1), 0, 1);
+            return x1 + (x2 - x1) * t;
+        }
+
+        function stabilizeBalls() {
+            for (const ball of balls) {
+                const speed = Math.hypot(ball.velocity.x, ball.velocity.y);
+                if (speed > CONFIG.ballMaxSpeed) {
+                    const scale = CONFIG.ballMaxSpeed / speed;
+                    Body.setVelocity(ball, {
+                        x: ball.velocity.x * scale,
+                        y: ball.velocity.y * scale
+                    });
+                }
+
+                if (Math.abs(ball.angularVelocity) > CONFIG.ballMaxAngular) {
+                    Body.setAngularVelocity(ball, Math.sign(ball.angularVelocity) * CONFIG.ballMaxAngular);
+                }
+
+                if (
+                    ball.position.y >= layout.containTopY - layout.ballRadius * 1.5 &&
+                    ball.position.y <= layout.containBottomY + layout.ballRadius * 2
+                ) {
+                    const leftLimit = xOnLineAtY(
+                        layout.leftContainTopX,
+                        layout.containTopY,
+                        layout.leftContainBottomX,
+                        layout.containBottomY,
+                        ball.position.y
+                    ) + layout.containMargin;
+
+                    const rightLimit = xOnLineAtY(
+                        layout.rightContainTopX,
+                        layout.containTopY,
+                        layout.rightContainBottomX,
+                        layout.containBottomY,
+                        ball.position.y
+                    ) - layout.containMargin;
+
+                    if (ball.position.x < leftLimit) {
+                        Body.setPosition(ball, { x: leftLimit, y: ball.position.y });
+                        Body.setVelocity(ball, {
+                            x: Math.abs(ball.velocity.x) * 0.22,
+                            y: ball.velocity.y
+                        });
+                    } else if (ball.position.x > rightLimit) {
+                        Body.setPosition(ball, { x: rightLimit, y: ball.position.y });
+                        Body.setVelocity(ball, {
+                            x: -Math.abs(ball.velocity.x) * 0.22,
+                            y: ball.velocity.y
+                        });
+                    }
+                }
+            }
+        }
+
+        function recordSamplesAndRemoveCounted() {
+            const survivors = [];
+            for (const ball of balls) {
+                if (!ball._counted && ball.position.y >= layout.sampleY) {
+                    const rawIndex = Math.floor((ball.position.x - layout.leftBoundary) / layout.spacing);
+                    const index = clamp(rawIndex, 0, state.rows);
+
+                    state.sampleBins[index] += 1;
+                    ball._counted = true;
+
+                    if (ball === state.trackedBall) {
+                        freezeTrace(ball);
+                        state.trackedBall = null;
+                    }
+
+                    Composite.remove(ballsComposite, ball);
+                    continue;
+                }
+
+                survivors.push(ball);
+            }
+            balls = survivors;
+        }
+
+        function rebuildWorld() {
+            state.rows = getRows();
+            updateSubtitle();
+            recomputeTheory();
+            layout = computeLayout();
+
+            Composite.clear(engine.world, false, true);
+            Engine.clear(engine);
+
+            boardComposite = Composite.create({ label: 'board' });
+            ballsComposite = Composite.create({ label: 'balls' });
+            Composite.add(engine.world, [boardComposite, ballsComposite]);
+
+            balls = [];
+            state.totalSpawned = 0;
+            state.autoAccumulator = 0;
+            state.queueAccumulator = 0;
+            state.queuedBalls = 0;
+            state.queuedTrackedBalls = 0;
+            state.physicsAccumulatorMs = 0;
+            state.trackedBall = null;
+            state.traceGhost = null;
+            state.sampleBins = new Array(state.rows + 1).fill(0);
+
+            createBoard();
+
+            const summary = computeStatistics(getSampleBins());
+            state.lastStats = summary;
+            updateStats(summary);
+            updateTeachingPanel(summary);
+            drawHud(summary);
+        }
+
+        function resizeHudCanvas() {
+            const dpr = window.devicePixelRatio || 1;
+            hudCanvas.width = Math.floor(window.innerWidth * dpr);
+            hudCanvas.height = Math.floor(window.innerHeight * dpr);
+            hudCanvas.style.width = `${window.innerWidth}px`;
+            hudCanvas.style.height = `${window.innerHeight}px`;
+        }
+
+        function handleResize() {
+            Render.setSize(render, window.innerWidth, window.innerHeight);
+            Render.setPixelRatio(render, window.devicePixelRatio || 1);
+            resizeHudCanvas();
+            rebuildWorld();
+        }
+
+        function scheduleRebuild() {
+            clearTimeout(state.resizeTimer);
+            state.resizeTimer = setTimeout(rebuildWorld, 120);
+        }
+
+        function toggleRunning() {
+            state.isRunning = !state.isRunning;
+            toggleBtnEl.textContent = state.isRunning ? '暂停物理' : '继续物理';
+            toggleBtnEl.className = state.isRunning
+                ? 'px-4 py-2 bg-indigo-600 hover:bg-indigo-500 rounded-lg transition-colors text-sm font-medium'
+                : 'px-4 py-2 bg-emerald-600 hover:bg-emerald-500 rounded-lg transition-colors text-sm font-medium';
+        }
+
+        function processQueuedSpawns() {
+            let guard = 0;
+            while (state.queueAccumulator >= 1 && guard < 8) {
+                if (state.queuedTrackedBalls > 0) {
+                    if (!spawnBall({ forceTrack: true })) break;
+                    state.queuedTrackedBalls -= 1;
+                    state.queueAccumulator -= 1;
+                    guard += 1;
+                    continue;
+                }
+
+                if (state.queuedBalls > 0) {
+                    if (!spawnBall({ forceTrack: false })) break;
+                    state.queuedBalls -= 1;
+                    state.queueAccumulator -= 1;
+                    guard += 1;
+                    continue;
+                }
+
+                break;
+            }
+
+            state.queueAccumulator = Math.min(state.queueAccumulator, 12);
+        }
+
+        function processAutoSpawns() {
+            let guard = 0;
+            while (state.autoAccumulator >= 1 && guard < 4) {
+                if (!spawnBall({ forceTrack: false })) {
+                    break;
+                }
+                state.autoAccumulator -= 1;
+                guard += 1;
+            }
+
+            state.autoAccumulator = Math.min(state.autoAccumulator, 6);
+        }
+
+        function stepPhysics(stepMs) {
+            Engine.update(engine, stepMs);
+            stabilizeBalls();
+            rescueFeederIfNeeded(engine.timing.timestamp || performance.now());
+            recordSamplesAndRemoveCounted();
+            cleanupBalls();
+        }
+
+        function animate(timestamp = 0) {
+            const dtMs = state.lastFrameTime ? Math.min(48, timestamp - state.lastFrameTime) : CONFIG.physicsStepMs;
+            state.lastFrameTime = timestamp;
+
+            if (state.isRunning) {
+                if (state.autoSpawn) {
+                    state.autoAccumulator += dtMs / 1000 * getSpawnRate();
+                }
+
+                if (state.queuedTrackedBalls > 0 || state.queuedBalls > 0) {
+                    state.queueAccumulator += dtMs / 1000 * Math.max(10, getSpawnRate() * 1.25);
+                }
+
+                processQueuedSpawns();
+                processAutoSpawns();
+
+                state.physicsAccumulatorMs += dtMs;
+                let steps = 0;
+                while (state.physicsAccumulatorMs >= CONFIG.physicsStepMs && steps < CONFIG.maxSubSteps) {
+                    stepPhysics(CONFIG.physicsStepMs);
+                    state.physicsAccumulatorMs -= CONFIG.physicsStepMs;
+                    steps += 1;
+                }
+
+                if (steps === CONFIG.maxSubSteps && state.physicsAccumulatorMs > CONFIG.physicsStepMs * CONFIG.maxSubSteps) {
+                    state.physicsAccumulatorMs = CONFIG.physicsStepMs * 0.5;
+                }
+            }
+
+            updateTrace(timestamp);
+
+            const summary = computeStatistics(getSampleBins());
+            state.lastStats = summary;
+            updateStats(summary);
+            updateTeachingPanel(summary);
+            drawHud(summary);
+
+            requestAnimationFrame(animate);
+        }
+
+        function bindEvents() {
+            resetBtnEl.addEventListener('click', rebuildWorld);
+            toggleBtnEl.addEventListener('click', toggleRunning);
+
+            speedRangeEl.addEventListener('input', updateSpeedLabel);
+
+            rowsRangeEl.addEventListener('input', () => {
+                updateRowsLabel();
+                scheduleRebuild();
+            });
+
+            autoToggleEl.addEventListener('change', () => {
+                state.autoSpawn = autoToggleEl.checked;
+            });
+
+            traceToggleEl.addEventListener('change', () => {
+                state.traceEnabled = traceToggleEl.checked;
+                if (!state.traceEnabled) {
+                    state.trackedBall = null;
+                    state.traceGhost = null;
+                }
+            });
+
+            normalToggleEl.addEventListener('change', () => {
+                state.showNormal = normalToggleEl.checked;
+            });
+
+            singleBtnEl.addEventListener('click', () => {
+                ensureRunning();
+                state.autoSpawn = false;
+                autoToggleEl.checked = false;
+                queueBalls(1, true);
+            });
+
+            drop100BtnEl.addEventListener('click', () => {
+                ensureRunning();
+                state.autoSpawn = false;
+                autoToggleEl.checked = false;
+                queueBalls(100, false);
+            });
+
+            drop500BtnEl.addEventListener('click', () => {
+                ensureRunning();
+                state.autoSpawn = false;
+                autoToggleEl.checked = false;
+                queueBalls(500, false);
+            });
+
+            window.addEventListener('resize', () => {
+                clearTimeout(state.resizeTimer);
+                state.resizeTimer = setTimeout(handleResize, 120);
+            });
+        }
+
+        function bindPhysicsEvents() {
+            Events.on(engine, 'collisionStart', (event) => {
+                const stamp = engine.timing.timestamp || performance.now();
+
+                for (const pair of event.pairs) {
+                    let ball = null;
+                    let peg = null;
+
+                    if (pair.bodyA._isBall && pair.bodyB._isPeg) {
+                        ball = pair.bodyA;
+                        peg = pair.bodyB;
+                    } else if (pair.bodyB._isBall && pair.bodyA._isPeg) {
+                        ball = pair.bodyB;
+                        peg = pair.bodyA;
+                    }
+
+                    if (!ball || !peg || ball._counted) continue;
+                    if (stamp - ball._lastPegJitterAt < 12) continue;
+
+                    ball._lastPegJitterAt = stamp;
+                    const jitter = (Math.random() - 0.5) * 2 * CONFIG.pegJitterVelocity;
+                    Body.setVelocity(ball, {
+                        x: clamp(ball.velocity.x + jitter, -1.5, 1.5),
+                        y: clamp(ball.velocity.y + (Math.random() - 0.5) * 0.03, -0.5, CONFIG.ballMaxSpeed)
+                    });
+                    Body.setAngularVelocity(
+                        ball,
+                        clamp(ball.angularVelocity + jitter * CONFIG.pegJitterSpin * 8, -CONFIG.ballMaxAngular, CONFIG.ballMaxAngular)
+                    );
+                }
+            });
+        }
+
+        function init() {
+            hudCanvas = document.getElementById('hudCanvas');
+            hudCtx = hudCanvas.getContext('2d');
+
+            updateRowsLabel();
+            updateSpeedLabel();
+            updateSubtitle();
+            recomputeTheory();
+
+            engine = Engine.create({
+                enableSleeping: true,
+                gravity: { x: 0, y: 1, scale: 0.001 },
+                positionIterations: 14,
+                velocityIterations: 12,
+                constraintIterations: 3
+            });
+
+            bindPhysicsEvents();
+
+            const container = document.getElementById('canvasContainer');
+            render = Render.create({
+                element: container,
+                engine,
+                options: {
+                    width: window.innerWidth,
+                    height: window.innerHeight,
+                    wireframes: false,
+                    background: 'transparent',
+                    pixelRatio: window.devicePixelRatio || 1
+                }
+            });
+
+            Render.run(render);
+
+            resizeHudCanvas();
+            rebuildWorld();
+            bindEvents();
+            requestAnimationFrame(animate);
+        }
+
+        window.addEventListener('load', init);
+    </script>
+</body>
+
+</html>
